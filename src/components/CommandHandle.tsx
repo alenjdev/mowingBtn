@@ -1,69 +1,101 @@
-import { CommandIssuer } from "./CommandIssuer";
-import { FC, useEffect, useState } from "react";
+import { Component } from "react";
 import { App, Device, ModuleData } from "@formant/data-sdk";
-
+import { Button } from "@alenjdev/ui-sdk";
 interface ICommandHandleProps {
   device: Device | undefined;
 }
+interface ICommandHandleState {
+  isMowing: boolean;
+  disable: boolean;
+}
+export class CommandHandle extends Component<
+  ICommandHandleProps,
+  ICommandHandleState
+> {
+  public constructor(props: any) {
+    super(props);
+    this.state = {
+      isMowing: false,
+      disable: false,
+    };
+  }
 
-export const CommandHandle: FC<ICommandHandleProps> = ({ device }) => {
-  const [isMowing, setIsMowing] = useState<boolean>();
+  public componentDidMount() {
+    App.addModuleDataListener(this.receiveModuleData);
+  }
 
-  useEffect(() => {
-    App.addModuleDataListener(receiveModuleData);
-  }, [device]);
-
-  const receiveModuleData = async (newValue: ModuleData) => {
-    const latestState = getLatestJsonUrl(newValue);
+  receiveModuleData = async (newValue: ModuleData) => {
+    const { isMowing } = this.state;
+    const latestState = getLatestData(newValue);
     if (latestState === undefined) return;
-    if (isMowing !== latestState.values[0]) setIsMowing(latestState.values[0]);
+    if (typeof latestState === "string") return;
+    if (latestState.values[0] === undefined || latestState.values.length === 0)
+      return;
+    if (isMowing !== latestState.values[0]) {
+      this.setState({
+        isMowing: latestState.values[0],
+        disable: false,
+      });
+    }
   };
 
-  return (
-    <div>
-      {isMowing ? (
-        <CommandIssuer
-          device={device!}
-          label="STOP Mowing"
-          params="STOP"
-          command="switch_mowing"
-        />
-      ) : (
-        <CommandIssuer
-          device={device!}
-          label="START Mowing"
-          params="START"
-          command="switch_mowing"
-        />
-      )}
-    </div>
-  );
-};
+  issueCommand = async () => {
+    const { device } = this.props;
+    const { isMowing } = this.state;
+    if (!device) return;
+    device.sendCommand("switch_mowing", isMowing ? "STOP" : "START");
+    this.setState({
+      disable: true,
+    });
+    setTimeout(() => {
+      this.setState({
+        disable: false,
+      });
+    }, 20000);
+  };
 
-function getLatestJsonUrl(
+  render() {
+    const { disable, isMowing } = this.state;
+
+    return (
+      <div>
+        <Button
+          disabled={disable}
+          onClick={this.issueCommand}
+          type="primary"
+          size="large"
+        >
+          {isMowing ? "STOP mowing" : "START mowing"}
+        </Button>
+      </div>
+    );
+  }
+}
+
+function getLatestData(
   moduleData: ModuleData
-): { keys: string[]; values: boolean[] } | undefined {
+): { keys: string[]; values: boolean[] } | undefined | string {
   const streams = Object.values(moduleData.streams);
   if (streams.length === 0) {
-    throw new Error("No streams.");
+    return "No streams.";
   }
   const stream = streams[0];
   if (stream === undefined) {
-    throw new Error("No stream.");
+    return "No stream.";
   }
   if (stream.loading) {
     return undefined;
   }
   if (stream.tooMuchData) {
-    throw new Error("Too much data.");
+    return "Too much data.";
   }
 
   if (stream.data.length === 0) {
-    throw new Error("No data.");
+    return "No data.";
   }
   const latestPoint = stream.data[0].points.at(-1);
   if (!latestPoint) {
-    throw new Error("No datapoints.");
+    return "No datapoints.";
   }
 
   return latestPoint[1];
